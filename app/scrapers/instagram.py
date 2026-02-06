@@ -1,0 +1,304 @@
+"""
+Instagram Profile Scraper
+
+Scrapes public Instagram profiles by parsing the HTML page directly.
+Uses mobile user agents and rotating residential proxies to avoid rate limits.
+
+Features:
+- Extracts follower/following counts, bio, verification status, etc.
+- Multiple regex patterns to handle Instagram's varying HTML structures
+- Automatic retry with proxy rotation on extraction failures
+- No authentication required (public profiles only)
+"""
+
+import requests
+from typing import Dict, Optional
+import logging
+import re
+
+from app.scrapers.stealth import get_requests_proxies
+
+logger = logging.getLogger(__name__)
+
+MOBILE_USER_AGENTS = [
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+]
+
+
+def scrape_profile_no_login(username: str, max_retries: int = 7) -> Optional[Dict]:
+    """Scrape Instagram profile using mobile web HTML parsing (no API)."""
+    import random
+    import time
+
+    url = f'https://www.instagram.com/{username}/'
+
+    for attempt in range(max_retries):
+        proxies = get_requests_proxies()
+
+        headers = {
+            'User-Agent': random.choice(MOBILE_USER_AGENTS),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+
+        try:
+            r = requests.get(url, headers=headers, proxies=proxies, timeout=20)
+
+            if r.status_code == 404:
+                logger.error(f"Profile @{username} not found")
+                return None
+
+            if r.status_code == 429:
+                raise RuntimeError("Rate limited by Instagram (429). Wait a few minutes before scraping again.")
+
+            if r.status_code != 200:
+                logger.warning(f"HTTP {r.status_code} for @{username}, attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                return None
+
+            html = r.text
+
+            # Check if redirected to login
+            if '/accounts/login' in r.url or ('login' in html[:5000].lower() and 'password' in html[:5000].lower()):
+                logger.error(f"Instagram requires login for @{username}")
+                return None
+
+            # Extract data from embedded JSON in HTML
+            data = _extract_profile_from_html(html, username)
+
+            if data:
+                return data
+
+            # Extraction failed - retry with new proxy/IP
+            if attempt < max_retries - 1:
+                logger.debug(f"Extraction failed for @{username}, retrying ({attempt + 1}/{max_retries})")
+                time.sleep(1.0)
+                continue
+
+            logger.error(f"Could not extract profile data for @{username} after {max_retries} attempts")
+            return None
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"Timeout for @{username}, attempt {attempt + 1}/{max_retries}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                continue
+            return None
+        except RuntimeError:
+            raise
+        except Exception as e:
+            err = str(e)
+            if '429' in err:
+                raise RuntimeError("Rate limited by Instagram (429). Wait a few minutes before scraping again.")
+            logger.warning(f"Error scraping @{username}: {e}, attempt {attempt + 1}/{max_retries}")
+            if attempt < max_retries - 1:
+                time.sleep(1)
+                continue
+            return None
+
+    return None
+
+
+def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
+    """Extract profile data from Instagram HTML page."""
+
+    results = {}
+
+    # Multiple patterns for username (Instagram changes HTML structure)
+    username_patterns = [
+        r'"username":"([^"]+)"',
+        r'"owner":\{"username":"([^"]+)"',
+        r'instagram\.com/([a-zA-Z0-9_.]+)/"\s*>',
+    ]
+    for pattern in username_patterns:
+        match = re.search(pattern, html)
+        if match and match.group(1).lower() == username.lower():
+            results['username'] = match.group(1)
+            break
+
+    # Multiple patterns for full name
+    name_patterns = [
+        r'"full_name":"([^"]*)"',
+        r'"name":"([^"]*)"',
+        r'<title>([^(<]+)\s*\(@' + re.escape(username) + r'\)',
+    ]
+    for pattern in name_patterns:
+        match = re.search(pattern, html, re.IGNORECASE)
+        if match and 'full_name' not in results:
+            results['full_name'] = match.group(1).strip()
+            break
+
+    # Multiple patterns for biography
+    bio_patterns = [
+        r'"biography":"([^"]*)"',
+        r'"bio":"([^"]*)"',
+        r'"description":"([^"]*)"',
+    ]
+    for pattern in bio_patterns:
+        match = re.search(pattern, html)
+        if match and 'biography' not in results:
+            try:
+                decoded = match.group(1).encode('utf-8').decode('unicode_escape')
+                results['biography'] = decoded.encode('utf-16', 'surrogatepass').decode('utf-16')
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                results['biography'] = match.group(1).replace('\\u', '')
+            break
+
+    # Multiple patterns for follower count
+    follower_patterns = [
+        r'"follower_count":(\d+)',
+        r'"edge_followed_by":\{"count":(\d+)\}',
+        r'"userInteractionCount":"?(\d+)"?.*?[Ff]ollow',
+        r'followers["\s:]+(\d+)',
+    ]
+    for pattern in follower_patterns:
+        match = re.search(pattern, html)
+        if match and 'follower_count' not in results:
+            results['follower_count'] = int(match.group(1))
+            break
+
+    # Multiple patterns for following count
+    following_patterns = [
+        r'"following_count":(\d+)',
+        r'"edge_follow":\{"count":(\d+)\}',
+    ]
+    for pattern in following_patterns:
+        match = re.search(pattern, html)
+        if match and 'following_count' not in results:
+            results['following_count'] = int(match.group(1))
+            break
+
+    # Multiple patterns for media/post count
+    media_patterns = [
+        r'"media_count":(\d+)',
+        r'"edge_owner_to_timeline_media":\{"count":(\d+)\}',
+    ]
+    for pattern in media_patterns:
+        match = re.search(pattern, html)
+        if match and 'media_count' not in results:
+            results['media_count'] = int(match.group(1))
+            break
+
+    # Meta description fallback: "11M Followers, 7,639 Following, 11K Posts"
+    meta_patterns = [
+        r'content="([\d.,]+[KMB]?)\s*Followers?,\s*([\d.,]+[KMB]?)\s*Following,\s*([\d.,]+[KMB]?)\s*Posts?',
+        r'([\d.,]+[KMB]?)\s*Followers?\s*[,·]\s*([\d.,]+[KMB]?)\s*Following\s*[,·]\s*([\d.,]+[KMB]?)\s*Posts?',
+    ]
+    for pattern in meta_patterns:
+        meta_match = re.search(pattern, html, re.IGNORECASE)
+        if meta_match:
+            if 'follower_count' not in results:
+                results['follower_count'] = _parse_abbreviated_number(meta_match.group(1))
+            if 'following_count' not in results:
+                results['following_count'] = _parse_abbreviated_number(meta_match.group(2))
+            if 'media_count' not in results:
+                results['media_count'] = _parse_abbreviated_number(meta_match.group(3))
+            break
+
+    # Get verified status
+    verified_patterns = [
+        r'"is_verified":(true|false)',
+        r'"verified":(true|false)',
+    ]
+    for pattern in verified_patterns:
+        match = re.search(pattern, html)
+        if match:
+            results['is_verified'] = match.group(1) == 'true'
+            break
+
+    # Get private status
+    match = re.search(r'"is_private":(true|false)', html)
+    if match:
+        results['is_private'] = match.group(1) == 'true'
+
+    # Get business status
+    match = re.search(r'"is_business_account":(true|false)', html)
+    if match:
+        results['is_business'] = match.group(1) == 'true'
+
+    # Get external URL
+    url_patterns = [
+        r'"external_url":"([^"]+)"',
+        r'"website":"([^"]+)"',
+        r'"url":"(https?://[^"]+)"',
+    ]
+    for pattern in url_patterns:
+        match = re.search(pattern, html)
+        if match and 'external_url' not in results:
+            try:
+                decoded = match.group(1).replace('\\/', '/').encode('utf-8').decode('unicode_escape')
+                results['external_url'] = decoded.encode('utf-16', 'surrogatepass').decode('utf-16')
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                results['external_url'] = match.group(1).replace('\\/', '/')
+            break
+
+    # Must have follower count to be considered valid
+    if 'follower_count' not in results or results.get('follower_count', 0) == 0:
+        return None
+
+    bio = results.get('biography', '')
+
+    return {
+        'username': results.get('username', username),
+        'full_name': results.get('full_name', ''),
+        'bio': bio,
+        'follower_count': results.get('follower_count', 0),
+        'following_count': results.get('following_count', 0),
+        'post_count': results.get('media_count', 0),
+        'is_verified': results.get('is_verified', False),
+        'is_private': results.get('is_private', False),
+        'is_business': results.get('is_business', False),
+        'website': results.get('external_url', ''),
+        'email': _extract_email(bio),
+        'phone': _extract_phone(bio),
+        'platform': 'instagram',
+        'profile_url': f'https://www.instagram.com/{username}/',
+    }
+
+
+def _parse_abbreviated_number(s: str) -> int:
+    """Parse abbreviated numbers like 11M, 7.5K, 1.2B into integers."""
+    s = s.strip().replace(',', '')
+    multipliers = {'K': 1_000, 'M': 1_000_000, 'B': 1_000_000_000}
+
+    for suffix, mult in multipliers.items():
+        if s.upper().endswith(suffix):
+            try:
+                return int(float(s[:-1]) * mult)
+            except (ValueError, IndexError):
+                return 0
+
+    try:
+        return int(float(s))
+    except ValueError:
+        return 0
+
+
+def _extract_email(text: str) -> str:
+    if not text:
+        return ''
+    pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    matches = re.findall(pattern, text)
+    return matches[0] if matches else ''
+
+
+def _extract_phone(text: str) -> str:
+    if not text:
+        return ''
+    patterns = [
+        r'\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}',
+        r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
+        r'\d{3}[-.\s]?\d{3}[-.\s]?\d{4}',
+    ]
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        if matches:
+            phone = re.sub(r'[^\d+]', '', matches[0])
+            if len(phone) >= 10:
+                return phone
+    return ''

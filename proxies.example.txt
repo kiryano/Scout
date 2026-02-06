@@ -1,0 +1,12 @@
+# Proxy file for Scout
+# One proxy per line in the format: http://username:password@host:port
+# Lines starting with # are ignored
+
+# Example residential proxy (Smartproxy/Decodo):
+# http://username:password@gate.decodo.com:7000
+
+# Example datacenter proxy:
+# http://username:password@proxy.example.com:8080
+
+# Example without auth:
+# http://proxy.example.com:8080
