@@ -2,7 +2,9 @@ import random
 import time
 import os
 import logging
-from typing import Optional
+import requests
+from typing import Optional, Callable
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -108,3 +110,46 @@ def proxy_status() -> str:
     if os.environ.get('SCOUT_FREE_PROXY', '').lower() in ('1', 'true', 'yes'):
         return 'free'
     return 'none'
+
+
+def test_proxy() -> bool:
+    """Test if current proxy is working."""
+    proxy = get_requests_proxies()
+    if not proxy:
+        return True
+
+    try:
+        r = requests.get('https://httpbin.org/ip', proxies=proxy, timeout=10)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def retry_request(max_retries: int = 3, delay: float = 2.0):
+    """Decorator to retry failed requests."""
+    def decorator(func: Callable):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_error = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.ProxyError as e:
+                    last_error = e
+                    logger.warning(f"Proxy error (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        time.sleep(delay)
+                except requests.exceptions.Timeout as e:
+                    last_error = e
+                    logger.warning(f"Timeout (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        time.sleep(delay)
+                except requests.exceptions.ConnectionError as e:
+                    last_error = e
+                    logger.warning(f"Connection error (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        time.sleep(delay)
+            logger.error(f"All {max_retries} attempts failed: {last_error}")
+            return None
+        return wrapper
+    return decorator

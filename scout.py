@@ -13,6 +13,25 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from app import __version__
+
+if len(sys.argv) > 1:
+    arg = sys.argv[1].lower()
+    if arg in ('--version', '-v', 'version'):
+        print(f"Scout v{__version__}")
+        sys.exit(0)
+    elif arg in ('--help', '-h', 'help'):
+        print(f"Scout v{__version__} - Social media lead generation tool")
+        print()
+        print("Usage: python scout.py [options]")
+        print()
+        print("Options:")
+        print("  --version, -v    Show version")
+        print("  --help, -h       Show this help")
+        print()
+        print("Run without arguments to start the interactive menu.")
+        sys.exit(0)
+
 env_file = Path(__file__).parent / '.env'
 if env_file.exists():
     with open(env_file) as _f:
