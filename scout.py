@@ -204,11 +204,12 @@ def show_menu():
     table.add_row("3", "LinkedIn", "requires cookie")
     table.add_row("4", "GitHub", "profiles")
     table.add_row("5", "YouTube", "channels")
+    table.add_row("6", "Twitch", "streamers")
     table.add_row("", "", "")
-    table.add_row("6", "Bulk Scrape", "from file")
-    table.add_row("7", "Exports", "view files")
-    table.add_row("8", "Proxy", "settings")
-    table.add_row("9", "Exit", "")
+    table.add_row("7", "Bulk Scrape", "from file")
+    table.add_row("8", "Exports", "view files")
+    table.add_row("9", "Proxy", "settings")
+    table.add_row("0", "Exit", "")
 
     console.print(Panel(
         table,
@@ -349,7 +350,7 @@ def scrape_instagram_interactive():
 
 
 def scrape_tiktok_interactive():
-    from app.scrapers.tiktok_scraper import scrape_tiktok_profile
+    from app.scrapers.tiktok import scrape_tiktok_profile
 
     console.print()
     console.print(Panel(
@@ -466,7 +467,7 @@ def scrape_tiktok_interactive():
 
 
 def scrape_linkedin_interactive():
-    from app.scrapers.linkedin_scraper import scrape_linkedin_profile
+    from app.scrapers.linkedin import scrape_linkedin_profile
 
     console.print()
 
@@ -846,10 +847,131 @@ def scrape_youtube_interactive():
         ))
 
 
+def scrape_twitch_interactive():
+    from app.scrapers.twitch import scrape_profile
+
+    console.print()
+    console.print(Panel(
+        f"[bold {ACCENT}]TWITCH[/bold {ACCENT}]\n[dim]No login required[/dim]",
+        border_style=ACCENT_DIM,
+        box=box.HEAVY
+    ))
+    console.print()
+
+    console.print("[white]Enter Twitch usernames (one per line)[/white]")
+    console.print("[dim]Press Enter on empty line when done[/dim]")
+    console.print()
+
+    usernames = []
+    while True:
+        username = Prompt.ask("Username", default="")
+        if not username:
+            break
+        username = username.strip()
+        if username:
+            usernames.append(username)
+            console.print(f"[green]✓[/green] Added {username}")
+
+    if not usernames:
+        console.print("[yellow]No usernames entered![/yellow]")
+        return
+
+    console.print()
+    console.print(f"[bold white]Scraping {len(usernames)} Twitch profiles...[/bold white]")
+    console.print()
+
+    profiles = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+
+        for i, username in enumerate(usernames, 1):
+            task = progress.add_task(
+                f"[white]Scraping {username}...",
+                total=None
+            )
+
+            try:
+                profile = scrape_profile(username)
+
+                if profile:
+                    profiles.append(profile)
+                    progress.update(task, description=f"[green]✓ {username}")
+
+                    info_table = Table(show_header=False, box=None, padding=(0, 2))
+                    info_table.add_column(style="dim")
+                    info_table.add_column(style="white")
+
+                    if profile.get('full_name'):
+                        info_table.add_row("Name:", profile['full_name'][:50])
+                    if profile.get('follower_count'):
+                        info_table.add_row("Followers:", f"{profile['follower_count']:,}")
+                    if profile.get('bio'):
+                        bio = profile['bio'][:80] + '...' if len(profile['bio']) > 80 else profile['bio']
+                        info_table.add_row("Bio:", bio)
+                    if profile.get('is_partner'):
+                        info_table.add_row("Status:", "[purple]Partner[/purple]")
+                    elif profile.get('is_affiliate'):
+                        info_table.add_row("Status:", "[blue]Affiliate[/blue]")
+                    if profile.get('email'):
+                        info_table.add_row("Email:", profile['email'])
+
+                    console.print(info_table)
+                    console.print()
+                else:
+                    progress.update(task, description=f"[red]✗ {username} - Not found")
+
+            except Exception as e:
+                progress.update(task, description=f"[red]✗ {username} - Error")
+                console.print(f"[dim red]Error: {str(e)[:100]}[/dim red]")
+
+            if i < len(usernames):
+                random_delay(0.5, 1.5)
+
+    console.print()
+
+    if profiles:
+        result_panel = Panel(
+            f"[bold green]Successfully scraped {len(profiles)}/{len(usernames)} profiles[/bold green]",
+            style="green",
+            box=box.DOUBLE
+        )
+        console.print(result_panel)
+        console.print()
+
+        profiles = enrich_profiles(profiles)
+
+        if Confirm.ask("[+] Export to CSV?", default=True):
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"twitch_export_{timestamp}.csv"
+
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                if profiles:
+                    writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
+                    writer.writeheader()
+                    writer.writerows(profiles)
+
+            console.print()
+            console.print(Panel(
+                f"[bold]Exported to:[/bold] [white]{filename}[/white]\n"
+                f"[bold]Total profiles:[/bold] {len(profiles)}",
+                title="[green]✓ Export Complete[/green]",
+                border_style="green"
+            ))
+    else:
+        console.print(Panel(
+            "[yellow]No profiles were scraped successfully[/yellow]",
+            style="yellow"
+        ))
+
+
 def scrape_from_file():
     console.print()
     console.print(Panel(
-        f"[bold {ACCENT}]BULK SCRAPE[/bold {ACCENT}]\n[dim]From username list file[/dim]",
+        f"[bold {ACCENT}]BULK SCRAPE[/bold {ACCENT}]\n[dim]From username list file (TXT or CSV)[/dim]",
         border_style=ACCENT_DIM,
         box=box.HEAVY
     ))
@@ -858,16 +980,65 @@ def scrape_from_file():
     filename = Prompt.ask("[>] Enter filename", default="usernames.txt")
 
     try:
-        with open(filename, 'r') as f:
-            usernames = [line.strip().replace('@', '') for line in f if line.strip()]
+        usernames = []
+        if filename.lower().endswith('.csv'):
+            with open(filename, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    username = row.get('username', '') or row.get('Username', '') or row.get('handle', '') or row.get('Handle', '')
+                    if not username:
+                        first_col = list(row.values())[0] if row else ''
+                        username = first_col
+                    username = username.strip().replace('@', '')
+                    if username:
+                        usernames.append(username)
+        else:
+            with open(filename, 'r', encoding='utf-8') as f:
+                usernames = [line.strip().replace('@', '') for line in f if line.strip()]
+
+        if not usernames:
+            console.print(f"\n[red]✗ No usernames found in {filename}[/red]")
+            return
 
         console.print(f"\n[white]Found {len(usernames)} usernames in {filename}[/white]")
+
+        console.print()
+        console.print(f"[bold {ACCENT}]Select platform:[/bold {ACCENT}]")
+        console.print("[1] Instagram")
+        console.print("[2] TikTok")
+        console.print("[3] YouTube")
+        console.print("[4] GitHub")
+        console.print("[5] Twitch")
+        console.print()
+
+        platform_choice = Prompt.ask("[>] Platform", choices=["1", "2", "3", "4", "5"], default="1")
+
+        platform_map = {
+            "1": ("instagram", "Instagram"),
+            "2": ("tiktok", "TikTok"),
+            "3": ("youtube", "YouTube"),
+            "4": ("github", "GitHub"),
+            "5": ("twitch", "Twitch"),
+        }
+        platform_key, platform_name = platform_map[platform_choice]
+
+        if platform_key == "instagram":
+            from app.scrapers.instagram import scrape_profile_no_login as scraper_func
+        elif platform_key == "tiktok":
+            from app.scrapers.tiktok import scrape_tiktok_profile as scraper_func
+        elif platform_key == "youtube":
+            from app.scrapers.youtube import scrape_channel as scraper_func
+        elif platform_key == "github":
+            from app.scrapers.github import scrape_profile as scraper_func
+        elif platform_key == "twitch":
+            from app.scrapers.twitch import scrape_profile as scraper_func
+
+        console.print()
+        console.print(f"[white]Scraping {len(usernames)} {platform_name} profiles...[/white]")
 
         if not Confirm.ask("Continue?", default=True):
             return
 
-        console.print()
-        console.print(f"[bold white]Scraping {len(usernames)} profiles...[/bold white]")
         console.print()
 
         profiles = []
@@ -886,14 +1057,15 @@ def scrape_from_file():
                 )
 
                 try:
-                    profile = scrape_profile_no_login(username)
+                    profile = scraper_func(username)
 
                     if profile:
                         profiles.append(profile)
                         successful += 1
+                        follower_count = profile.get('follower_count', 0) or profile.get('subscribers', 0) or 0
                         progress.update(
                             task,
-                            description=f"[green]✓[/green] [{i}/{len(usernames)}] @{username} ({profile['follower_count']:,} followers)"
+                            description=f"[green]✓[/green] [{i}/{len(usernames)}] @{username} ({follower_count:,} followers)"
                         )
                     else:
                         progress.update(
@@ -914,7 +1086,7 @@ def scrape_from_file():
 
         if profiles:
             timestamp = time.strftime("%Y%m%d_%H%M%S")
-            export_filename = f"instagram_export_{timestamp}.csv"
+            export_filename = f"{platform_key}_export_{timestamp}.csv"
 
             with open(export_filename, 'w', newline='', encoding='utf-8') as f:
                 if profiles:
@@ -924,6 +1096,7 @@ def scrape_from_file():
 
             console.print(Panel(
                 f"[bold green]SUCCESS![/bold green]\n\n"
+                f"[bold]Platform:[/bold] {platform_name}\n"
                 f"[bold]Scraped:[/bold] {successful}/{len(usernames)} profiles\n"
                 f"[bold]Exported to:[/bold] [white]{export_filename}[/white]",
                 title="[green]✓ Complete[/green]",
@@ -1092,8 +1265,8 @@ def main():
 
         try:
             choice = Prompt.ask(
-                f"[bold {ACCENT}]>[/bold {ACCENT}] [{ACCENT}]1-9[/{ACCENT}]",
-                choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+                f"[bold {ACCENT}]>[/bold {ACCENT}] [{ACCENT}]0-10[/{ACCENT}]",
+                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
                 default="1",
                 show_choices=False
             )
@@ -1114,15 +1287,18 @@ def main():
                 scrape_youtube_interactive()
 
             elif choice == '6':
-                scrape_from_file()
+                scrape_twitch_interactive()
 
             elif choice == '7':
-                view_exports()
+                scrape_from_file()
 
             elif choice == '8':
-                proxy_settings()
+                view_exports()
 
             elif choice == '9':
+                proxy_settings()
+
+            elif choice == '0':
                 console.print()
                 console.print(Panel(
                     f"[bold {ACCENT}]Thanks for using Scout![/bold {ACCENT}]\n\n"
