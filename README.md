@@ -6,7 +6,7 @@
 
 > **Early access** — Scout is a CLI tool right now. A full web app with dashboard, CRM, and team features is in development. Looking for testers and feedback. Join the [Discord](https://discord.gg/eneDNUbzcc) or open an issue.
 
-Lead generation tool for appointment setters. Scrapes profiles from Instagram, TikTok, and LinkedIn, enriches them with verified emails using SMTP verification and company domain detection, and exports to CSV.
+Lead generation tool for appointment setters. Scrapes profiles from 8 platforms, enriches them with verified emails using SMTP verification and company domain detection, and exports to CSV.
 
 ![Scout CLI](screenshot.png)
 
@@ -23,24 +23,40 @@ cp .env.example .env
 
 ```bash
 python scout.py
+python scout.py --verbose   # enable debug logging
+python scout.py --version
+python scout.py --help
 ```
 
 Interactive CLI for scraping profiles, enriching leads with contact info, and exporting to CSV.
 
+## Supported Platforms
+
+| Platform | Auth Required | What It Scrapes |
+|----------|--------------|-----------------|
+| Instagram | None | profile, bio, followers, email, phone, links |
+| TikTok | None | profile, bio, followers, likes, email |
+| LinkedIn | Session cookie | profile, headline, bio, email |
+| GitHub | None | profile, bio, repos, email, website |
+| YouTube | None | channel name, description, subscribers, email, links |
+| Twitch | None | profile, bio, followers, partner/affiliate status, social links |
+| Pinterest | None | profile, bio, followers, pins, website |
+| Linktree | None | all link-in-bio platforms (Linktree, Stan, Linkr, Bio.link) |
+
 ## Features
 
-- Instagram profile scraping (no login required)
-- TikTok profile scraping
-- LinkedIn profile scraping (session cookie)
+- 8 platform scrapers with consistent output format
 - Email enrichment with SMTP verification (no paid API needed)
 - Company domain detection from headline/bio
 - Email pattern detection (first.last@company.com patterns)
 - Lead scoring (0-100)
 - Website deep scraping for contact info
 - Bio link scraping (Linktree, WhatsApp, tel: links)
-- CSV export
-- Bulk scraping from username lists
+- CSV export with enriched data
+- Bulk scraping from username lists (CSV/TXT)
 - Proxy rotation and user-agent rotation
+- Configurable proxy file for rotating proxy lists
+- Debug logging with `--verbose` flag
 
 ## LinkedIn Setup
 
@@ -66,6 +82,8 @@ SCOUT_PROXY_FILE=proxies.txt
 SCOUT_FREE_PROXY=true
 ```
 
+Proxies are optional. All scrapers work without them. Twitch automatically falls back to a direct connection if the proxy fails.
+
 ## How Enrichment Works
 
 After scraping, Scout enriches leads with verified email addresses:
@@ -83,9 +101,10 @@ No paid API required. Optional Hunter.io support for additional coverage.
 
 ## Limitations
 
-- Instagram hashtag scraping is rate-limited; profile scraping works better
+- Instagram may require retries depending on region/IP
 - TikTok may serve CAPTCHAs depending on region or IP
 - LinkedIn cookies expire periodically
+- GitHub API is limited to 60 requests/hour without a token
 - SMTP verification may be blocked by some mail servers
 - Free proxies are unreliable
 
