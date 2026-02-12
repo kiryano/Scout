@@ -4,6 +4,7 @@ import sys
 import csv
 import time
 import os
+import logging
 from pathlib import Path
 
 if sys.platform == 'win32':
@@ -15,8 +16,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app import __version__
 
-if len(sys.argv) > 1:
-    arg = sys.argv[1].lower()
+_verbose = '--verbose' in sys.argv or '-V' in sys.argv
+logging.basicConfig(
+    level=logging.DEBUG if _verbose else logging.WARNING,
+    format='%(name)s: %(message)s',
+)
+
+_args = [a for a in sys.argv[1:] if a not in ('--verbose', '-V')]
+if _args:
+    arg = _args[0].lower()
     if arg in ('--version', '-v', 'version'):
         print(f"Scout v{__version__}")
         sys.exit(0)
@@ -28,6 +36,7 @@ if len(sys.argv) > 1:
         print("Options:")
         print("  --version, -v    Show version")
         print("  --help, -h       Show this help")
+        print("  --verbose, -V    Enable debug logging")
         print()
         print("Run without arguments to start the interactive menu.")
         sys.exit(0)
@@ -224,10 +233,12 @@ def show_menu():
     table.add_row("4", "GitHub", "profiles")
     table.add_row("5", "YouTube", "channels")
     table.add_row("6", "Twitch", "streamers")
+    table.add_row("7", "Linktree", "link-in-bio")
+    table.add_row("8", "Pinterest", "profiles")
     table.add_row("", "", "")
-    table.add_row("7", "Bulk Scrape", "from file")
-    table.add_row("8", "Exports", "view files")
-    table.add_row("9", "Proxy", "settings")
+    table.add_row("9", "Bulk Scrape", "from file")
+    table.add_row("10", "Exports", "view files")
+    table.add_row("11", "Proxy", "settings")
     table.add_row("0", "Exit", "")
 
     console.print(Panel(
@@ -416,10 +427,9 @@ def scrape_tiktok_interactive():
             )
 
             try:
-                result = scrape_tiktok_profile(username)
+                profile = scrape_tiktok_profile(username)
 
-                if result.get('status') == 'success' and result.get('profile'):
-                    profile = result['profile']
+                if profile:
                     profiles.append(profile)
 
                     progress.update(task, description=f"[green]✓ @{username}")
@@ -435,6 +445,8 @@ def scrape_tiktok_interactive():
                     if profile.get('bio'):
                         bio = profile['bio'][:80] + '...' if len(profile['bio']) > 80 else profile['bio']
                         info_table.add_row("Bio:", bio)
+                    if profile.get('email'):
+                        info_table.add_row("Email:", profile['email'])
 
                     console.print(info_table)
                     console.print()
@@ -553,10 +565,9 @@ def scrape_linkedin_interactive():
             )
 
             try:
-                result = scrape_linkedin_profile(username)
+                profile = scrape_linkedin_profile(username)
 
-                if result.get('status') == 'success' and result.get('profile'):
-                    profile = result['profile']
+                if profile:
                     profiles.append(profile)
 
                     progress.update(task, description=f"[green]✓ {username}")
@@ -579,8 +590,7 @@ def scrape_linkedin_interactive():
                     console.print(info_table)
                     console.print()
                 else:
-                    msg = result.get('message', 'Failed')
-                    progress.update(task, description=f"[red]✗ {username} - {msg[:60]}")
+                    progress.update(task, description=f"[red]✗ {username} - Failed")
 
             except Exception as e:
                 progress.update(task, description=f"[red]✗ {username} - Error")
@@ -987,6 +997,275 @@ def scrape_twitch_interactive():
         ))
 
 
+def scrape_linktree_interactive():
+    from app.scrapers.linktree import scrape_linktree, scrape_all
+
+    console.print()
+    console.print(Panel(
+        f"[bold {ACCENT}]LINK-IN-BIO[/bold {ACCENT}]\n[dim]Linktree, Stan & more[/dim]",
+        border_style=ACCENT_DIM,
+        box=box.HEAVY
+    ))
+    console.print()
+
+    console.print(f"[bold {ACCENT}]Select platform:[/bold {ACCENT}]")
+    console.print("[1] Linktree (linktr.ee)")
+    console.print("[2] Auto-detect (try all)")
+    console.print()
+
+    platform_choice = Prompt.ask("[>] Platform", choices=["1", "2"], default="1")
+
+    scraper_map = {
+        "1": (scrape_linktree, "linktree"),
+        "2": (scrape_all, "linkbio"),
+    }
+    scraper_func, platform_name = scraper_map[platform_choice]
+
+    console.print()
+    console.print("[white]Enter usernames (one per line)[/white]")
+    console.print("[dim]Press Enter on empty line when done[/dim]")
+    console.print()
+
+    usernames = []
+    while True:
+        username = Prompt.ask("Username", default="")
+        if not username:
+            break
+        username = username.strip()
+        if username:
+            usernames.append(username)
+            console.print(f"[green]✓[/green] Added {username}")
+
+    if not usernames:
+        console.print("[yellow]No usernames entered![/yellow]")
+        return
+
+    console.print()
+    console.print(f"[bold white]Scraping {len(usernames)} profiles...[/bold white]")
+    console.print()
+
+    profiles = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+
+        for i, username in enumerate(usernames, 1):
+            task = progress.add_task(
+                f"[white]Scraping {username}...",
+                total=None
+            )
+
+            try:
+                profile = scraper_func(username)
+
+                if profile:
+                    profiles.append(profile)
+                    progress.update(task, description=f"[green]✓ {username}")
+
+                    info_table = Table(show_header=False, box=None, padding=(0, 2))
+                    info_table.add_column(style="dim")
+                    info_table.add_column(style="white")
+
+                    if profile.get('full_name'):
+                        info_table.add_row("Name:", profile['full_name'][:50])
+                    if profile.get('link_count'):
+                        info_table.add_row("Links:", str(profile['link_count']))
+                    if profile.get('bio'):
+                        bio = profile['bio'][:80] + '...' if len(profile['bio']) > 80 else profile['bio']
+                        info_table.add_row("Bio:", bio)
+                    if profile.get('email'):
+                        info_table.add_row("Email:", profile['email'])
+                    if profile.get('socials'):
+                        socials = profile['socials']
+                        social_str = ', '.join([f"{k}" for k in list(socials.keys())[:4]])
+                        info_table.add_row("Socials:", social_str)
+
+                    console.print(info_table)
+                    console.print()
+                else:
+                    progress.update(task, description=f"[red]✗ {username} - Not found")
+
+            except Exception as e:
+                progress.update(task, description=f"[red]✗ {username} - Error")
+                console.print(f"[dim red]Error: {str(e)[:100]}[/dim red]")
+
+            if i < len(usernames):
+                random_delay(0.5, 1.5)
+
+    console.print()
+
+    if profiles:
+        result_panel = Panel(
+            f"[bold green]Successfully scraped {len(profiles)}/{len(usernames)} profiles[/bold green]",
+            style="green",
+            box=box.DOUBLE
+        )
+        console.print(result_panel)
+        console.print()
+
+        profiles = enrich_profiles(profiles)
+
+        if Confirm.ask("[+] Export to CSV?", default=True):
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"{platform_name}_export_{timestamp}.csv"
+
+            export_profiles = []
+            for p in profiles:
+                flat = {k: v for k, v in p.items() if k not in ['links', 'socials']}
+                if p.get('socials'):
+                    for platform, handle in p['socials'].items():
+                        flat[f'social_{platform}'] = handle
+                export_profiles.append(flat)
+
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                if export_profiles:
+                    all_keys = set()
+                    for p in export_profiles:
+                        all_keys.update(p.keys())
+                    writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+                    writer.writeheader()
+                    writer.writerows(export_profiles)
+
+            console.print()
+            console.print(Panel(
+                f"[bold]Exported to:[/bold] [white]{filename}[/white]\n"
+                f"[bold]Total profiles:[/bold] {len(profiles)}",
+                title="[green]✓ Export Complete[/green]",
+                border_style="green"
+            ))
+    else:
+        console.print(Panel(
+            "[yellow]No profiles were scraped successfully[/yellow]",
+            style="yellow"
+        ))
+
+
+def scrape_pinterest_interactive():
+    from app.scrapers.pinterest import scrape_profile
+
+    console.print()
+    console.print(Panel(
+        f"[bold {ACCENT}]PINTEREST[/bold {ACCENT}]\n[dim]No login required[/dim]",
+        border_style=ACCENT_DIM,
+        box=box.HEAVY
+    ))
+    console.print()
+
+    console.print("[white]Enter Pinterest usernames (one per line)[/white]")
+    console.print("[dim]Press Enter on empty line when done[/dim]")
+    console.print()
+
+    usernames = []
+    while True:
+        username = Prompt.ask("Username", default="")
+        if not username:
+            break
+        username = username.strip()
+        if username:
+            usernames.append(username)
+            console.print(f"[green]✓[/green] Added {username}")
+
+    if not usernames:
+        console.print("[yellow]No usernames entered![/yellow]")
+        return
+
+    console.print()
+    console.print(f"[bold white]Scraping {len(usernames)} Pinterest profiles...[/bold white]")
+    console.print()
+
+    profiles = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+
+        for i, username in enumerate(usernames, 1):
+            task = progress.add_task(
+                f"[white]Scraping {username}...",
+                total=None
+            )
+
+            try:
+                profile = scrape_profile(username)
+
+                if profile:
+                    profiles.append(profile)
+                    progress.update(task, description=f"[green]✓ {username}")
+
+                    info_table = Table(show_header=False, box=None, padding=(0, 2))
+                    info_table.add_column(style="dim")
+                    info_table.add_column(style="white")
+
+                    if profile.get('full_name'):
+                        info_table.add_row("Name:", profile['full_name'][:50])
+                    if profile.get('follower_count'):
+                        info_table.add_row("Followers:", f"{profile['follower_count']:,}")
+                    if profile.get('pin_count'):
+                        info_table.add_row("Pins:", f"{profile['pin_count']:,}")
+                    if profile.get('board_count'):
+                        info_table.add_row("Boards:", f"{profile['board_count']:,}")
+                    if profile.get('bio'):
+                        bio = profile['bio'][:80] + '...' if len(profile['bio']) > 80 else profile['bio']
+                        info_table.add_row("Bio:", bio)
+                    if profile.get('website'):
+                        info_table.add_row("Website:", profile['website'])
+                    if profile.get('email'):
+                        info_table.add_row("Email:", profile['email'])
+
+                    console.print(info_table)
+                    console.print()
+                else:
+                    progress.update(task, description=f"[red]✗ {username} - Not found")
+
+            except Exception as e:
+                progress.update(task, description=f"[red]✗ {username} - Error")
+                console.print(f"[dim red]Error: {str(e)[:100]}[/dim red]")
+
+            if i < len(usernames):
+                random_delay(1.0, 2.5)
+
+    console.print()
+
+    if profiles:
+        result_panel = Panel(
+            f"[bold green]Successfully scraped {len(profiles)}/{len(usernames)} profiles[/bold green]",
+            style="green",
+            box=box.DOUBLE
+        )
+        console.print(result_panel)
+        console.print()
+
+        profiles = enrich_profiles(profiles)
+
+        if Confirm.ask("[+] Export to CSV?", default=True):
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"pinterest_export_{timestamp}.csv"
+
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                if profiles:
+                    writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
+                    writer.writeheader()
+                    writer.writerows(profiles)
+
+            console.print()
+            console.print(Panel(
+                f"[bold]Exported to:[/bold] [white]{filename}[/white]\n"
+                f"[bold]Total profiles:[/bold] {len(profiles)}",
+                title="[green]✓ Export Complete[/green]",
+                border_style="green"
+            ))
+    else:
+        console.print(Panel(
+            "[yellow]No profiles were scraped successfully[/yellow]",
+            style="yellow"
+        ))
+
+
 def scrape_from_file():
     console.print()
     console.print(Panel(
@@ -1025,19 +1304,25 @@ def scrape_from_file():
         console.print(f"[bold {ACCENT}]Select platform:[/bold {ACCENT}]")
         console.print("[1] Instagram")
         console.print("[2] TikTok")
-        console.print("[3] YouTube")
-        console.print("[4] GitHub")
-        console.print("[5] Twitch")
+        console.print("[3] LinkedIn")
+        console.print("[4] YouTube")
+        console.print("[5] GitHub")
+        console.print("[6] Twitch")
+        console.print("[7] Linktree")
+        console.print("[8] Pinterest")
         console.print()
 
-        platform_choice = Prompt.ask("[>] Platform", choices=["1", "2", "3", "4", "5"], default="1")
+        platform_choice = Prompt.ask("[>] Platform", choices=["1", "2", "3", "4", "5", "6", "7", "8"], default="1")
 
         platform_map = {
             "1": ("instagram", "Instagram"),
             "2": ("tiktok", "TikTok"),
-            "3": ("youtube", "YouTube"),
-            "4": ("github", "GitHub"),
-            "5": ("twitch", "Twitch"),
+            "3": ("linkedin", "LinkedIn"),
+            "4": ("youtube", "YouTube"),
+            "5": ("github", "GitHub"),
+            "6": ("twitch", "Twitch"),
+            "7": ("linktree", "Linktree"),
+            "8": ("pinterest", "Pinterest"),
         }
         platform_key, platform_name = platform_map[platform_choice]
 
@@ -1045,12 +1330,22 @@ def scrape_from_file():
             from app.scrapers.instagram import scrape_profile_no_login as scraper_func
         elif platform_key == "tiktok":
             from app.scrapers.tiktok import scrape_tiktok_profile as scraper_func
+        elif platform_key == "linkedin":
+            cookie = os.environ.get('LINKEDIN_COOKIE', '').strip()
+            if not cookie:
+                console.print("[red]✗ LINKEDIN_COOKIE not set in .env. Cannot bulk scrape LinkedIn.[/red]")
+                return
+            from app.scrapers.linkedin import scrape_linkedin_profile as scraper_func
         elif platform_key == "youtube":
             from app.scrapers.youtube import scrape_channel as scraper_func
         elif platform_key == "github":
             from app.scrapers.github import scrape_profile as scraper_func
         elif platform_key == "twitch":
             from app.scrapers.twitch import scrape_profile as scraper_func
+        elif platform_key == "linktree":
+            from app.scrapers.linktree import scrape_linktree as scraper_func
+        elif platform_key == "pinterest":
+            from app.scrapers.pinterest import scrape_profile as scraper_func
 
         console.print()
         console.print(f"[white]Scraping {len(usernames)} {platform_name} profiles...[/white]")
@@ -1152,9 +1447,13 @@ def proxy_settings():
     status_table = Table(show_header=False, box=None, padding=(0, 2))
     status_table.add_column(style="dim")
     status_table.add_column(style="white")
+    proxy_file = os.environ.get('SCOUT_PROXY_FILE', '')
+
     status_table.add_row("Status:", f"[green]{ps}[/green]" if ps != 'none' else "[red]off[/red]")
     if current_proxy:
         status_table.add_row("Proxy URL:", current_proxy[:60])
+    if proxy_file:
+        status_table.add_row("Proxy File:", proxy_file[:60])
     status_table.add_row("Free Proxy:", "[green]on[/green]" if free_enabled else "[dim]off[/dim]")
     console.print(status_table)
     console.print()
@@ -1163,14 +1462,15 @@ def proxy_settings():
     options.add_column("Option", style="bold yellow", width=8)
     options.add_column("Description", style="white")
     options.add_row("1", "Set proxy URL")
-    options.add_row("2", "Toggle free proxy on/off")
-    options.add_row("3", "Test proxy connection")
-    options.add_row("4", "Remove proxy")
-    options.add_row("5", "Back to menu")
+    options.add_row("2", "Set proxy file (rotating list)")
+    options.add_row("3", "Toggle free proxy on/off")
+    options.add_row("4", "Test proxy connection")
+    options.add_row("5", "Remove proxy")
+    options.add_row("6", "Back to menu")
     console.print(options)
     console.print()
 
-    choice = Prompt.ask("[bold yellow]Choose[/bold yellow]", choices=["1", "2", "3", "4", "5"], default="5")
+    choice = Prompt.ask("[bold yellow]Choose[/bold yellow]", choices=["1", "2", "3", "4", "5", "6"], default="6")
 
     if choice == '1':
         url = Prompt.ask("[>] Enter proxy URL (e.g. http://user:pass@host:port)")
@@ -1179,6 +1479,15 @@ def proxy_settings():
             console.print(f"[green]✓ Proxy set to {url.strip()[:60]}[/green]")
 
     elif choice == '2':
+        filepath = Prompt.ask("[>] Enter path to proxy list file (one proxy per line)")
+        if filepath.strip():
+            if os.path.exists(filepath.strip()):
+                _update_env('SCOUT_PROXY_FILE', filepath.strip())
+                console.print(f"[green]✓ Proxy file set to {filepath.strip()[:60]}[/green]")
+            else:
+                console.print(f"[red]✗ File not found: {filepath.strip()}[/red]")
+
+    elif choice == '3':
         if free_enabled:
             _update_env('SCOUT_FREE_PROXY', 'false')
             console.print("[yellow]✓ Free proxy disabled[/yellow]")
@@ -1186,7 +1495,7 @@ def proxy_settings():
             _update_env('SCOUT_FREE_PROXY', 'true')
             console.print("[green]✓ Free proxy enabled[/green]")
 
-    elif choice == '3':
+    elif choice == '4':
         console.print("[white]Testing proxy connection...[/white]")
         from app.scrapers.stealth import get_proxy
         px = get_proxy()
@@ -1225,10 +1534,12 @@ def proxy_settings():
                     else:
                         console.print("[red]All free proxies failed. Use a paid proxy for reliability.[/red]")
 
-    elif choice == '4':
+    elif choice == '5':
         _update_env('SCOUT_PROXY', '')
         _update_env('SCOUT_FREE_PROXY', 'false')
+        _update_env('SCOUT_PROXY_FILE', '')
         os.environ.pop('SCOUT_PROXY', None)
+        os.environ.pop('SCOUT_PROXY_FILE', None)
         console.print("[yellow]✓ Proxy removed[/yellow]")
 
 
@@ -1284,8 +1595,8 @@ def main():
 
         try:
             choice = Prompt.ask(
-                f"[bold {ACCENT}]>[/bold {ACCENT}] [{ACCENT}]0-10[/{ACCENT}]",
-                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+                f"[bold {ACCENT}]>[/bold {ACCENT}] [{ACCENT}]0-11[/{ACCENT}]",
+                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
                 default="1",
                 show_choices=False
             )
@@ -1309,12 +1620,18 @@ def main():
                 scrape_twitch_interactive()
 
             elif choice == '7':
-                scrape_from_file()
+                scrape_linktree_interactive()
 
             elif choice == '8':
-                view_exports()
+                scrape_pinterest_interactive()
 
             elif choice == '9':
+                scrape_from_file()
+
+            elif choice == '10':
+                view_exports()
+
+            elif choice == '11':
                 proxy_settings()
 
             elif choice == '0':

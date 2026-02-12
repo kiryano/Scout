@@ -21,9 +21,8 @@ Thumbs.db
 exports/
 *.csv
 
-.claude/
-
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo

@@ -12,6 +12,7 @@ import logging
 import re
 
 from app.scrapers.stealth import random_user_agent, get_requests_proxies
+from app.scrapers.utils import extract_email, parse_abbreviated_number
 
 logger = logging.getLogger(__name__)
 
@@ -127,29 +128,8 @@ def _extract_channel_data(html: str, identifier: str) -> Optional[Dict]:
     }
 
 
-def _parse_count(s: str) -> int:
-    """Parse subscriber counts like 1.5M, 500K, 1B."""
-    s = s.strip().replace(',', '')
-    multipliers = {'K': 1_000, 'M': 1_000_000, 'B': 1_000_000_000}
-
-    for suffix, mult in multipliers.items():
-        if s.upper().endswith(suffix):
-            try:
-                return int(float(s[:-1]) * mult)
-            except (ValueError, IndexError):
-                return 0
-    try:
-        return int(float(s))
-    except ValueError:
-        return 0
-
-
-def _extract_email(text: str) -> str:
-    if not text:
-        return ''
-    pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    matches = re.findall(pattern, text)
-    return matches[0] if matches else ''
+_parse_count = parse_abbreviated_number
+_extract_email = extract_email
 
 
 def _clean_redirect_url(url: str) -> str:

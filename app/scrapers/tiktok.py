@@ -2,11 +2,12 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Optional
 
 import httpx
 
 from app.scrapers.stealth import random_user_agent, get_httpx_proxy
+from app.scrapers.utils import extract_email
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,8 @@ def _build_headers() -> dict:
     }
 
 
-def scrape_tiktok_profile(username: str) -> Dict[str, Any]:
+def scrape_tiktok_profile(username: str) -> Optional[Dict]:
+    """Scrape TikTok profile. Returns profile dict or None."""
     url = f'https://www.tiktok.com/@{username}'
     logger.info(f"Scraping TikTok profile: {url}")
 
@@ -45,10 +47,10 @@ def scrape_tiktok_profile(username: str) -> Dict[str, Any]:
         resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error for @{username}: {e.response.status_code}")
-        return {'status': 'error', 'message': f'HTTP {e.response.status_code} for @{username}'}
+        return None
     except httpx.RequestError as e:
         logger.error(f"Request error for @{username}: {e}")
-        return {'status': 'error', 'message': str(e)}
+        return None
 
     html = resp.text
 
@@ -59,16 +61,13 @@ def scrape_tiktok_profile(username: str) -> Dict[str, Any]:
     )
     if not match:
         logger.warning(f"Could not find rehydration data for @{username}")
-        return {
-            'status': 'error',
-            'message': f'Could not extract profile data for @{username}. Page may require CAPTCHA or profile does not exist.',
-        }
+        return None
 
     try:
         data = json.loads(match.group(1))
     except json.JSONDecodeError as e:
         logger.error(f"JSON parse error for @{username}: {e}")
-        return {'status': 'error', 'message': f'Failed to parse profile data for @{username}'}
+        return None
 
     try:
         user_detail = data['__DEFAULT_SCOPE__']['webapp.user-detail']
@@ -77,22 +76,22 @@ def scrape_tiktok_profile(username: str) -> Dict[str, Any]:
         stats = user_info.get('stats', {})
     except (KeyError, TypeError) as e:
         logger.error(f"Unexpected JSON structure for @{username}: {e}")
-        return {'status': 'error', 'message': f'Unexpected data structure for @{username}'}
+        return None
+
+    bio = user.get('signature', '')
 
     profile = {
         'platform': 'tiktok',
         'username': user.get('uniqueId', username),
         'full_name': user.get('nickname', ''),
-        'bio': user.get('signature', ''),
+        'bio': bio,
+        'email': extract_email(bio),
         'profile_url': url,
         'is_verified': user.get('verified', False),
-        'profile_pic_url': user.get('avatarLarger', ''),
         'follower_count': stats.get('followerCount', 0),
         'following_count': stats.get('followingCount', 0),
         'likes_count': stats.get('heartCount', 0),
         'video_count': stats.get('videoCount', 0),
-        'scraped_from': f'@{username}',
-        'scraped_at': datetime.utcnow().isoformat(),
     }
 
     logger.info(
@@ -100,8 +99,4 @@ def scrape_tiktok_profile(username: str) -> Dict[str, Any]:
         f"{profile['follower_count']} followers | {profile['likes_count']} likes"
     )
 
-    return {
-        'status': 'success',
-        'message': f'Scraped @{username} successfully',
-        'profile': profile,
-    }
+    return profile

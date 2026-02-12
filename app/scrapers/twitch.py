@@ -11,7 +11,8 @@ from typing import Dict, Optional
 import logging
 import re
 
-from app.scrapers.stealth import random_user_agent
+from app.scrapers.stealth import random_user_agent, get_requests_proxies
+from app.scrapers.utils import extract_email
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +59,26 @@ def scrape_profile(username: str) -> Optional[Dict]:
     """ % username
 
     try:
-        r = requests.post(
-            'https://gql.twitch.tv/gql',
-            headers=headers,
-            json={'query': query},
-            timeout=20
-        )
+        proxies = get_requests_proxies()
+        try:
+            r = requests.post(
+                'https://gql.twitch.tv/gql',
+                headers=headers,
+                json={'query': query},
+                timeout=20,
+                proxies=proxies
+            )
+        except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError) as e:
+            if proxies:
+                logger.warning(f"Proxy failed for Twitch, retrying direct: {e}")
+                r = requests.post(
+                    'https://gql.twitch.tv/gql',
+                    headers=headers,
+                    json={'query': query},
+                    timeout=20
+                )
+            else:
+                raise
 
         if r.status_code != 200:
             logger.error(f"Twitch API error {r.status_code} for {username}")
@@ -128,9 +143,4 @@ def _format_profile(data: dict, username: str) -> Dict:
     }
 
 
-def _extract_email(text: str) -> str:
-    if not text:
-        return ''
-    pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    matches = re.findall(pattern, text)
-    return matches[0] if matches else ''
+_extract_email = extract_email

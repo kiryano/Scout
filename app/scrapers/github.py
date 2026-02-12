@@ -12,6 +12,7 @@ import logging
 import re
 
 from app.scrapers.stealth import get_requests_proxies, random_user_agent
+from app.scrapers.utils import extract_email
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,17 @@ def scrape_profile(username: str) -> Optional[Dict]:
         data = r.json()
         bio = data.get('bio') or ''
 
+        if not any([
+            data.get('name'),
+            data.get('bio'),
+            data.get('email'),
+            data.get('blog'),
+            data.get('company'),
+            data.get('twitter_username'),
+        ]):
+            logger.info(f"GitHub user @{username} has no profile data")
+            return None
+
         return {
             'username': data.get('login', username),
             'full_name': data.get('name') or '',
@@ -68,9 +80,4 @@ def scrape_profile(username: str) -> Optional[Dict]:
         return None
 
 
-def _extract_email(text: str) -> str:
-    if not text:
-        return ''
-    pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    matches = re.findall(pattern, text)
-    return matches[0] if matches else ''
+_extract_email = extract_email

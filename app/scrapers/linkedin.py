@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 import httpx
 
 from app.scrapers.stealth import random_user_agent, get_httpx_proxy
+from app.scrapers.utils import extract_email
 
 logger = logging.getLogger(__name__)
 
@@ -72,17 +73,17 @@ def _get_session():
     return client, csrf
 
 
-def scrape_linkedin_profile(username: str) -> Dict[str, Any]:
+def scrape_linkedin_profile(username: str) -> Optional[Dict]:
+    """Scrape LinkedIn profile. Returns profile dict or None."""
     cookie = _get_li_cookie()
     if not cookie:
-        return {
-            'status': 'error',
-            'message': 'LINKEDIN_COOKIE not set in .env. See README for setup instructions.',
-        }
+        logger.error("LINKEDIN_COOKIE not set in .env")
+        return None
 
     client, csrf = _get_session()
     if not client or not csrf:
-        return {'status': 'error', 'message': 'Failed to initialize LinkedIn session. Cookie may be expired.'}
+        logger.error("Failed to initialize LinkedIn session. Cookie may be expired.")
+        return None
 
     logger.info(f"Scraping LinkedIn profile: {username}")
 
@@ -99,20 +100,24 @@ def scrape_linkedin_profile(username: str) -> Dict[str, Any]:
         resp = client.get(url, headers=headers)
     except httpx.RequestError as e:
         logger.error(f"Request error for {username}: {e}")
-        return {'status': 'error', 'message': str(e)}
+        return None
 
     if resp.status_code == 403:
-        return {'status': 'error', 'message': f'Profile {username} is restricted or not accessible.'}
+        logger.error(f"Profile {username} is restricted or not accessible")
+        return None
     if resp.status_code == 401:
         _session_cache.update({'client': None, 'csrf': None})
-        return {'status': 'error', 'message': 'LinkedIn cookie expired. Re-export your li_at cookie.'}
+        logger.error("LinkedIn cookie expired. Re-export your li_at cookie.")
+        return None
     if resp.status_code != 200:
-        return {'status': 'error', 'message': f'HTTP {resp.status_code} for {username}'}
+        logger.error(f"HTTP {resp.status_code} for {username}")
+        return None
 
     try:
         data = resp.json()
     except json.JSONDecodeError:
-        return {'status': 'error', 'message': f'Invalid response for {username}'}
+        logger.error(f"Invalid response for {username}")
+        return None
 
     profile_data = None
     for item in data.get('included', []):
@@ -121,7 +126,8 @@ def scrape_linkedin_profile(username: str) -> Dict[str, Any]:
             break
 
     if not profile_data:
-        return {'status': 'error', 'message': f'No profile data found for {username}'}
+        logger.error(f"No profile data found for {username}")
+        return None
 
     summary = profile_data.get('summary', '')
     if not summary:
@@ -144,22 +150,9 @@ def scrape_linkedin_profile(username: str) -> Dict[str, Any]:
         'is_premium': profile_data.get('premium', False),
         'is_influencer': profile_data.get('influencer', False),
         'website': websites[0] if websites else '',
-        'email': _extract_email(summary),
-        'scraped_at': datetime.utcnow().isoformat(),
+        'email': extract_email(summary),
     }
 
     logger.info(f"Scraped {username}: {profile['full_name']} | {profile['headline'][:50]}")
 
-    return {
-        'status': 'success',
-        'message': f'Scraped {username} successfully',
-        'profile': profile,
-    }
-
-
-def _extract_email(text: str) -> str:
-    if not text:
-        return ''
-    pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    matches = re.findall(pattern, text)
-    return matches[0] if matches else ''
+    return profile
