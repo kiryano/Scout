@@ -1,9 +1,13 @@
 """
 YouTube Channel Scraper
 
-Fetches public YouTube channel information by parsing the channel page.
-Extracts channel name, description, subscriber count, and contact email from the About section.
-No authentication required.
+Scrapes public YouTube channel pages by parsing HTML and embedded JSON.
+Extracts subscriber counts, video counts, channel description, and links.
+
+Features:
+- Parses ytInitialData JSON from page source
+- Handles both @handle and /channel/ URL formats
+- No API key required
 """
 
 import requests

@@ -1,9 +1,13 @@
 """
 GitHub Profile Scraper
 
-Fetches public GitHub user profiles using the GitHub API.
-Extracts username, name, bio, email, company, location, website, and social links.
-No authentication required for basic profile data (60 requests/hour rate limit).
+Fetches public GitHub user profiles via the GitHub REST API.
+Extracts bio, follower counts, repos, company, location, and website.
+
+Features:
+- Uses unauthenticated API (60 requests/hour limit)
+- Skips empty profiles (no repos, no bio, no activity)
+- Extracts email from public profile fields
 """
 
 import requests

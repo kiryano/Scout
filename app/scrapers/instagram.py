@@ -29,7 +29,21 @@ MOBILE_USER_AGENTS = [
 ]
 
 
-def scrape_profile_no_login(username: str, max_retries: int = 7) -> Optional[Dict]:
+def _is_page_not_found(html: str) -> bool:
+    """Check if the HTML indicates the profile does not exist."""
+    not_found_signals = [
+        "Page Not Found",
+        "Sorry, this page isn",
+        "The link you followed may be broken",
+        "Profile isn\\'t available",
+        "profile may have been removed",
+        '"HttpErrorPage"',
+    ]
+    snippet = html[:10000]
+    return any(signal in snippet for signal in not_found_signals)
+
+
+def scrape_profile_no_login(username: str, max_retries: int = 3) -> Optional[Dict]:
     """Scrape Instagram profile using mobile web HTML parsing (no API)."""
     import random
     import time
@@ -49,14 +63,13 @@ def scrape_profile_no_login(username: str, max_retries: int = 7) -> Optional[Dic
             r = requests.get(url, headers=headers, proxies=proxies, timeout=20)
 
             if r.status_code == 404:
-                logger.error(f"Profile @{username} not found")
                 return None
 
             if r.status_code == 429:
                 raise RuntimeError("Rate limited by Instagram (429). Wait a few minutes before scraping again.")
 
             if r.status_code != 200:
-                logger.warning(f"HTTP {r.status_code} for @{username}, attempt {attempt + 1}/{max_retries}")
+                logger.debug(f"HTTP {r.status_code} for @{username}, attempt {attempt + 1}/{max_retries}")
                 if attempt < max_retries - 1:
                     time.sleep(1)
                     continue
@@ -64,28 +77,26 @@ def scrape_profile_no_login(username: str, max_retries: int = 7) -> Optional[Dic
 
             html = r.text
 
-            # Check if redirected to login
-            if '/accounts/login' in r.url or ('login' in html[:5000].lower() and 'password' in html[:5000].lower()):
-                logger.error(f"Instagram requires login for @{username}")
+            if _is_page_not_found(html):
                 return None
 
-            # Extract data from embedded JSON in HTML
+            if '/accounts/login' in r.url or ('login' in html[:5000].lower() and 'password' in html[:5000].lower()):
+                return None
+
             data = _extract_profile_from_html(html, username)
 
             if data:
                 return data
 
-            # Extraction failed - retry with new proxy/IP
             if attempt < max_retries - 1:
                 logger.debug(f"Extraction failed for @{username}, retrying ({attempt + 1}/{max_retries})")
                 time.sleep(1.0)
                 continue
 
-            logger.error(f"Could not extract profile data for @{username} after {max_retries} attempts")
             return None
 
         except requests.exceptions.Timeout:
-            logger.warning(f"Timeout for @{username}, attempt {attempt + 1}/{max_retries}")
+            logger.debug(f"Timeout for @{username}, attempt {attempt + 1}/{max_retries}")
             if attempt < max_retries - 1:
                 time.sleep(1)
                 continue
@@ -96,7 +107,7 @@ def scrape_profile_no_login(username: str, max_retries: int = 7) -> Optional[Dic
             err = str(e)
             if '429' in err:
                 raise RuntimeError("Rate limited by Instagram (429). Wait a few minutes before scraping again.")
-            logger.warning(f"Error scraping @{username}: {e}, attempt {attempt + 1}/{max_retries}")
+            logger.debug(f"Error scraping @{username}: {e}, attempt {attempt + 1}/{max_retries}")
             if attempt < max_retries - 1:
                 time.sleep(1)
                 continue
@@ -110,7 +121,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
 
     results = {}
 
-    # Multiple patterns for username (Instagram changes HTML structure)
     username_patterns = [
         r'"username":"([^"]+)"',
         r'"owner":\{"username":"([^"]+)"',
@@ -122,7 +132,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
             results['username'] = match.group(1)
             break
 
-    # Multiple patterns for full name
     name_patterns = [
         r'"full_name":"([^"]*)"',
         r'"name":"([^"]*)"',
@@ -134,7 +143,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
             results['full_name'] = match.group(1).strip()
             break
 
-    # Multiple patterns for biography
     bio_patterns = [
         r'"biography":"([^"]*)"',
         r'"bio":"([^"]*)"',
@@ -150,7 +158,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
                 results['biography'] = match.group(1).replace('\\u', '')
             break
 
-    # Multiple patterns for follower count
     follower_patterns = [
         r'"follower_count":(\d+)',
         r'"edge_followed_by":\{"count":(\d+)\}',
@@ -163,7 +170,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
             results['follower_count'] = int(match.group(1))
             break
 
-    # Multiple patterns for following count
     following_patterns = [
         r'"following_count":(\d+)',
         r'"edge_follow":\{"count":(\d+)\}',
@@ -174,7 +180,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
             results['following_count'] = int(match.group(1))
             break
 
-    # Multiple patterns for media/post count
     media_patterns = [
         r'"media_count":(\d+)',
         r'"edge_owner_to_timeline_media":\{"count":(\d+)\}',
@@ -185,7 +190,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
             results['media_count'] = int(match.group(1))
             break
 
-    # Meta description fallback: "11M Followers, 7,639 Following, 11K Posts"
     meta_patterns = [
         r'content="([\d.,]+[KMB]?)\s*Followers?,\s*([\d.,]+[KMB]?)\s*Following,\s*([\d.,]+[KMB]?)\s*Posts?',
         r'([\d.,]+[KMB]?)\s*Followers?\s*[,·]\s*([\d.,]+[KMB]?)\s*Following\s*[,·]\s*([\d.,]+[KMB]?)\s*Posts?',
@@ -201,7 +205,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
                 results['media_count'] = _parse_abbreviated_number(meta_match.group(3))
             break
 
-    # Get verified status
     verified_patterns = [
         r'"is_verified":(true|false)',
         r'"verified":(true|false)',
@@ -212,17 +215,14 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
             results['is_verified'] = match.group(1) == 'true'
             break
 
-    # Get private status
     match = re.search(r'"is_private":(true|false)', html)
     if match:
         results['is_private'] = match.group(1) == 'true'
 
-    # Get business status
     match = re.search(r'"is_business_account":(true|false)', html)
     if match:
         results['is_business'] = match.group(1) == 'true'
 
-    # Get external URL
     url_patterns = [
         r'"external_url":"([^"]+)"',
         r'"website":"([^"]+)"',
@@ -238,7 +238,6 @@ def _extract_profile_from_html(html: str, username: str) -> Optional[Dict]:
                 results['external_url'] = match.group(1).replace('\\/', '/')
             break
 
-    # Must have follower count to be considered valid
     if 'follower_count' not in results or results.get('follower_count', 0) == 0:
         return None
 

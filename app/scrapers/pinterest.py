@@ -1,9 +1,13 @@
 """
 Pinterest Profile Scraper
 
-Fetches public Pinterest profile information by extracting JSON from HTML.
-Extracts username, display name, bio, follower count, and website.
-No authentication required.
+Scrapes public Pinterest user profiles by parsing HTML page data.
+Extracts follower counts, pin counts, bio, and website links.
+
+Features:
+- Parses embedded JSON from page source
+- No authentication required
+- Extracts email and phone from bio text
 """
 
 import requests

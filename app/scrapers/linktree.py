@@ -1,14 +1,18 @@
 """
 Link-in-Bio Scraper
 
-Fetches profile data from link-in-bio services:
-- Linktree
-- Stan.store
-- Linkr.bio
-- Bio.link
+Scrapes public link-in-bio pages across multiple platforms.
 
-Extracts all links, social profiles, and contact info.
-No authentication required.
+Supported platforms:
+- Linktree (linktr.ee)
+- Stan Store (stan.store)
+- Linkr (linkr.bio)
+- Bio.link (bio.link)
+
+Features:
+- Extracts all social links from profile pages
+- Discovers email and phone from linked content
+- Can scrape all supported platforms at once via scrape_all()
 """
 
 import requests

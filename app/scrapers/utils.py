@@ -1,7 +1,12 @@
 """
-Shared scraper utilities.
+Shared Scraper Utilities
 
-Common extraction functions used across all platform scrapers.
+Common functions used across all platform scrapers.
+
+Provides:
+- extract_email() — regex-based email extraction from text
+- extract_phone() — phone number extraction from text
+- parse_abbreviated_number() — converts "11.5K", "2.3M" to integers
 """
 
 import re

@@ -1,9 +1,13 @@
 """
 Twitch Profile Scraper
 
-Fetches public Twitch channel information using the Helix API.
-Extracts username, display name, bio, and profile image.
-No authentication required for basic channel info.
+Fetches public Twitch user profiles via the Twitch GQL API.
+Extracts follower counts, bio, stream status, and social links.
+
+Features:
+- Uses public GraphQL endpoint (no auth required)
+- Extracts social links from channel panels
+- Detects live/offline status
 """
 
 import requests
