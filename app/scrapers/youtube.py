@@ -29,19 +29,23 @@ def scrape_channel(channel_identifier: str) -> Optional[Dict]:
         channel_identifier: Can be @handle, channel ID, or custom URL name
     """
     if channel_identifier.startswith('@'):
-        url = f'https://www.youtube.com/{channel_identifier}/about'
+        url = f'https://www.youtube.com/{channel_identifier}'
     elif channel_identifier.startswith('UC') and len(channel_identifier) == 24:
-        url = f'https://www.youtube.com/channel/{channel_identifier}/about'
+        url = f'https://www.youtube.com/channel/{channel_identifier}'
     else:
-        url = f'https://www.youtube.com/@{channel_identifier}/about'
+        url = f'https://www.youtube.com/@{channel_identifier}'
 
     headers = {
         'User-Agent': random_user_agent(),
         'Accept-Language': 'en-US,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml',
+    }
+    cookies = {
+        'CONSENT': 'PENDING+999',
     }
 
     try:
-        r = requests.get(url, headers=headers, timeout=20, proxies=get_requests_proxies())
+        r = requests.get(url, headers=headers, cookies=cookies, timeout=20, proxies=get_requests_proxies())
 
         if r.status_code == 404:
             logger.error(f"YouTube channel {channel_identifier} not found")
@@ -52,7 +56,15 @@ def scrape_channel(channel_identifier: str) -> Optional[Dict]:
             return None
 
         html = r.text
-        return _extract_channel_data(html, channel_identifier)
+        result = _extract_channel_data(html, channel_identifier)
+        if result:
+            return result
+
+        headers['User-Agent'] = random_user_agent()
+        r = requests.get(url, headers=headers, cookies=cookies, timeout=20, proxies=get_requests_proxies())
+        if r.status_code == 200:
+            return _extract_channel_data(r.text, channel_identifier)
+        return None
 
     except requests.exceptions.Timeout:
         logger.error(f"Timeout fetching YouTube channel {channel_identifier}")
