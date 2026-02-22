@@ -1,6 +1,6 @@
 # Scout
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Discord](https://img.shields.io/discord/1467620600267931713?color=7289da&label=Discord&logo=discord&logoColor=white)](https://discord.gg/eneDNUbzcc)
 
@@ -55,7 +55,8 @@ Interactive CLI for scraping profiles, enriching leads with contact info, and ex
 - CSV export with enriched data
 - Bulk scraping from username lists (CSV/TXT)
 - Proxy rotation and user-agent rotation
-- Configurable proxy file for rotating proxy lists
+- Configurable scrape delay and proxy settings
+- Automatic update checker with version enforcement
 - Debug logging with `--verbose` flag
 
 ## LinkedIn Setup
