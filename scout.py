@@ -397,15 +397,6 @@ def show_header():
     if _session_stats["scraped"] > 0:
         status += f"  ·  [dim]Scraped:[/dim] [white]{_session_stats['scraped']}[/white]"
     console.print(status, justify="center")
-
-    latest = _update_cache.get("latest")
-    if latest:
-        console.print(
-            f"[dim]Update available:[/dim] [bold {ACCENT}]v{latest}[/bold {ACCENT}]  "
-            f"[dim]— pip install --upgrade scout or visit GitHub[/dim]",
-            justify="center"
-        )
-
     console.print()
 
 
@@ -1069,8 +1060,22 @@ def view_exports():
 def main():
     _update_thread = _start_update_check()
     console.clear()
-    _update_thread.join(timeout=2.0)
+    _update_thread.join(timeout=3.0)
     show_header()
+
+    latest = _update_cache.get("latest")
+    if latest:
+        console.print()
+        console.print(Panel(
+            f"[bold white]Scout v{latest} is available.[/bold white]\n"
+            f"[dim]You are running v{__version__}. Please update before continuing.[/dim]\n\n"
+            f"[{ACCENT}]git pull origin main[/{ACCENT}]  [dim]or visit[/dim]  [{ACCENT}]github.com/kiryano/Scout[/{ACCENT}]",
+            border_style=ACCENT,
+            title="[bold white]Update Required[/bold white]",
+            padding=(1, 3),
+        ))
+        console.print()
+        sys.exit(1)
 
     while True:
         show_menu()
