@@ -1131,6 +1131,9 @@ def main():
         except KeyboardInterrupt:
             console.print("\n\n[yellow]Exiting...[/yellow]")
             break
+        except EOFError:
+            console.print("\n[yellow]No more input, exiting.[/yellow]")
+            break
         except Exception as e:
             console.print(f"\n[red]✗ Error: {e}[/red]")
 
