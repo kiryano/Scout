@@ -447,6 +447,7 @@ def show_menu():
     tools_left = [
         ("9", "Bulk Scrape", "from file"),
         ("10", "Exports", "view files"),
+        ("12", "Deduplicate", "cross-platform"),
     ]
     tools_right = [
         ("11", "Settings", "config"),
@@ -1071,6 +1072,80 @@ def view_exports():
     console.print()
 
 
+def deduplicate_interactive():
+    _platform_header("Deduplicate", "Cross-platform dedup")
+
+    from app.scrapers.dedup import (
+        load_all_exports, deduplicate, display_duplicate_report
+    )
+
+    console.print("[white]Scanning exports...[/white]")
+    console.print()
+
+    all_leads = load_all_exports('.')
+
+    if not all_leads:
+        console.print("  [yellow]No exports found[/yellow]")
+        console.print("  [dim]Run platform scrapes first to create exports[/dim]")
+        return
+
+    csv_count = len(set(lead.get('_source_file', '') for lead in all_leads))
+    console.print(f"  [dim]Found {csv_count} exports ({len(all_leads)} total profiles)[/dim]")
+
+    deduplicated, merged_groups, stats = deduplicate(all_leads)
+
+    display_duplicate_report(merged_groups, stats['unique_after'],
+                             stats['total_before'], console)
+
+    if not merged_groups:
+        console.print("  [green]No duplicates found across exports[/green]")
+        console.print()
+
+        if Confirm.ask("[+] Export all leads as-is?", default=True):
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"dedup_export_{timestamp}.csv"
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                all_keys = set()
+                for lead in deduplicated:
+                    export_lead = {k: v for k, v in lead.items()
+                                   if not k.startswith('_')}
+                    all_keys.update(export_lead.keys())
+                writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+                writer.writeheader()
+                for lead in deduplicated:
+                    export_lead = {k: v for k, v in lead.items()
+                                   if not k.startswith('_')}
+                    writer.writerow(export_lead)
+            console.print(f"  [green]Saved[/green] [white]{filename}[/white] [dim]({len(deduplicated)} leads)[/dim]")
+            console.print()
+        return
+
+    console.print(Rule("[bold white]Merge[/bold white]", style=ACCENT_DIM, align="left"))
+    console.print()
+
+    if Confirm.ask("[+] Merge duplicates and export?", default=True):
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"dedup_export_{timestamp}.csv"
+
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            all_keys = set()
+            for lead in deduplicated:
+                export_lead = {k: v for k, v in lead.items()
+                               if not k.startswith('_')}
+                all_keys.update(export_lead.keys())
+            writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+            writer.writeheader()
+            for lead in deduplicated:
+                export_lead = {k: v for k, v in lead.items()
+                               if not k.startswith('_')}
+                writer.writerow(export_lead)
+
+        console.print()
+        console.print(f"  [green]Saved[/green] [white]{filename}[/white] [dim]({len(deduplicated)} unique leads)[/dim]")
+        console.print(f"  [dim]Merged {stats['overlapping']} duplicates into {stats['groups']} groups[/dim]")
+        console.print()
+
+
 def main():
     _update_thread = _start_update_check()
     console.clear()
@@ -1097,7 +1172,7 @@ def main():
         try:
             choice = Prompt.ask(
                 f"[{ACCENT}]>[/{ACCENT}]",
-                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
+                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
                 default="1",
                 show_choices=False
             )
@@ -1137,6 +1212,8 @@ def main():
                 view_exports()
             elif choice == '11':
                 settings_menu()
+            elif choice == '12':
+                deduplicate_interactive()
 
             _pause()
             console.clear()
