@@ -63,6 +63,7 @@ from rich.rule import Rule
 
 from app.scrapers.instagram import scrape_profile_no_login
 from app.scrapers.stealth import random_delay, proxy_status
+from app.scrapers.priority import rank_leads, display_priority_queue
 
 ACCENT = "#a70947"
 ACCENT_DIM = "#6b0530"
@@ -239,6 +240,10 @@ def enrich_profiles(profiles):
             )
 
         console.print(t)
+
+    ranked = rank_leads(enriched)
+    console.print(Rule("[bold white]Priority Queue[/bold white]", style=ACCENT_DIM, align="left"))
+    display_priority_queue(ranked, console)
 
     return enriched
 
@@ -529,7 +534,10 @@ def _standard_export(profiles, total, platform_name, item_type="profiles"):
             filename = f"{platform_name}_export_{timestamp}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as f:
                 if profiles:
-                    writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
+                    all_keys = set()
+                    for p in profiles:
+                        all_keys.update(p.keys())
+                    writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
                     writer.writeheader()
                     writer.writerows(profiles)
             _export_result(filename, len(profiles), item_type)
@@ -855,17 +863,23 @@ def scrape_from_file():
         console.print()
 
         if profiles:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            export_filename = f"{platform_key}_export_{timestamp}.csv"
-
-            with open(export_filename, 'w', newline='', encoding='utf-8') as f:
-                if profiles:
-                    writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
-                    writer.writeheader()
-                    writer.writerows(profiles)
-
             _success_summary(successful, len(usernames))
-            _export_result(export_filename, successful)
+            profiles = enrich_profiles(profiles)
+
+            if Confirm.ask("[+] Export to CSV?", default=True):
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                export_filename = f"{platform_key}_export_{timestamp}.csv"
+
+                with open(export_filename, 'w', newline='', encoding='utf-8') as f:
+                    if profiles:
+                        all_keys = set()
+                        for p in profiles:
+                            all_keys.update(p.keys())
+                        writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+                        writer.writeheader()
+                        writer.writerows(profiles)
+
+                _export_result(export_filename, successful)
         else:
             _no_results()
 
