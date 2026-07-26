@@ -64,6 +64,7 @@ from rich.rule import Rule
 from app.scrapers.instagram import scrape_profile_no_login
 from app.scrapers.stealth import random_delay, proxy_status
 from app.scrapers.priority import rank_leads, display_priority_queue
+from app.scrapers.readiness import evaluate_readiness, display_readiness_table
 
 ACCENT = "#a70947"
 ACCENT_DIM = "#6b0530"
@@ -244,6 +245,12 @@ def enrich_profiles(profiles):
     ranked = rank_leads(enriched)
     console.print(Rule("[bold white]Priority Queue[/bold white]", style=ACCENT_DIM, align="left"))
     display_priority_queue(ranked, console)
+
+    for lead in ranked:
+        lead.update(evaluate_readiness(lead))
+
+    console.print(Rule("[bold white]Outreach Readiness[/bold white]", style=ACCENT_DIM, align="left"))
+    display_readiness_table(ranked, console)
 
     return enriched
 
