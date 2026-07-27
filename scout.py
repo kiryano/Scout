@@ -67,6 +67,7 @@ from app.scrapers.priority import rank_leads, display_priority_queue
 from app.scrapers.readiness import evaluate_readiness, display_readiness_table
 from app.scrapers.business import detect_business_type, estimate_team_size, display_business_table
 from app.scrapers.presence import extract_platform_presence, display_social_presence
+from app.scrapers.tracker import load_baseline, build_identity_key, detect_changes, classify_changes, display_change_tracker
 
 ACCENT = "#a70947"
 ACCENT_DIM = "#6b0530"
@@ -260,6 +261,20 @@ def enrich_profiles(profiles):
 
     console.print(Rule("[bold white]Business Profile[/bold white]", style=ACCENT_DIM, align="left"))
     display_business_table(ranked, console)
+
+    baseline = load_baseline('.')
+    if baseline:
+        for lead in ranked:
+            key = build_identity_key(lead)
+            old_lead = baseline.get(key)
+            if old_lead:
+                raw = detect_changes(old_lead, lead)
+                lead['_changes'] = classify_changes(raw)
+            else:
+                lead['_changes'] = []
+
+        console.print(Rule("[bold white]Changes Since Last Scrape[/bold white]", style=ACCENT_DIM, align="left"))
+        display_change_tracker(ranked, baseline, console)
 
     return enriched
 
