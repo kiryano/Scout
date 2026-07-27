@@ -65,6 +65,7 @@ from app.scrapers.instagram import scrape_profile_no_login
 from app.scrapers.stealth import random_delay, proxy_status
 from app.scrapers.priority import rank_leads, display_priority_queue
 from app.scrapers.readiness import evaluate_readiness, display_readiness_table
+from app.scrapers.business import detect_business_type, estimate_team_size, display_business_table
 
 ACCENT = "#a70947"
 ACCENT_DIM = "#6b0530"
@@ -251,6 +252,13 @@ def enrich_profiles(profiles):
 
     console.print(Rule("[bold white]Outreach Readiness[/bold white]", style=ACCENT_DIM, align="left"))
     display_readiness_table(ranked, console)
+
+    for lead in ranked:
+        lead.update(detect_business_type(lead))
+        lead.update(estimate_team_size(lead))
+
+    console.print(Rule("[bold white]Business Profile[/bold white]", style=ACCENT_DIM, align="left"))
+    display_business_table(ranked, console)
 
     return enriched
 
