@@ -66,6 +66,7 @@ from app.scrapers.stealth import random_delay, proxy_status
 from app.scrapers.priority import rank_leads, display_priority_queue
 from app.scrapers.readiness import evaluate_readiness, display_readiness_table
 from app.scrapers.business import detect_business_type, estimate_team_size, display_business_table
+from app.scrapers.presence import extract_platform_presence, display_social_presence
 
 ACCENT = "#a70947"
 ACCENT_DIM = "#6b0530"
@@ -1117,6 +1118,12 @@ def deduplicate_interactive():
         console.print()
 
         if Confirm.ask("[+] Export all leads as-is?", default=True):
+            for lead in deduplicated:
+                lead.update(extract_platform_presence(lead))
+
+            console.print(Rule("[bold white]Social Presence[/bold white]", style=ACCENT_DIM, align="left"))
+            display_social_presence(deduplicated, console)
+
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             filename = f"dedup_export_{timestamp}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as f:
@@ -1139,6 +1146,12 @@ def deduplicate_interactive():
     console.print()
 
     if Confirm.ask("[+] Merge duplicates and export?", default=True):
+        for lead in deduplicated:
+            lead.update(extract_platform_presence(lead))
+
+        console.print(Rule("[bold white]Social Presence[/bold white]", style=ACCENT_DIM, align="left"))
+        display_social_presence(deduplicated, console)
+
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = f"dedup_export_{timestamp}.csv"
 
