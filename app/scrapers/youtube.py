@@ -93,11 +93,18 @@ def _extract_channel_data(html: str, identifier: str) -> Optional[Dict]:
     sub_patterns = [
         r'"subscriberCountText":\{"simpleText":"([\d.,]+[KMB]?) subscribers?"',
         r'"subscriberCountText":\{"accessibility":\{"accessibilityData":\{"label":"([\d.,]+[KMB]?) subscribers?"',
+        r'"subscriberCountText":\{"simpleText":"([\d.,]+[KMB]?)',  # "30.2M subscribers" (space-separated)
+        r'"label":"([\d.,]+[KMB]?)\s*(million|thousand)?\s*subscribers?"',
     ]
     for pattern in sub_patterns:
         match = re.search(pattern, html, re.IGNORECASE)
         if match:
-            results['subscriber_count'] = _parse_count(match.group(1))
+            raw = match.group(1)
+            if match.group(2) == 'million':
+                raw += 'M'
+            elif match.group(2) == 'thousand':
+                raw += 'K'
+            results['subscriber_count'] = _parse_count(raw)
             break
 
     handle_match = re.search(r'"canonicalChannelUrl":"https://www\.youtube\.com/@([^"]+)"', html)

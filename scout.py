@@ -63,6 +63,7 @@ from rich.rule import Rule
 
 from app.scrapers.instagram import scrape_profile_no_login
 from app.scrapers.stealth import random_delay, proxy_status
+from app.scrapers.utils import csv_safe
 
 ACCENT = "#a70947"
 ACCENT_DIM = "#6b0530"
@@ -329,7 +330,10 @@ def _pause():
     """Pause before returning to menu so the user can review output."""
     console.print()
     console.print(Rule(style=ACCENT_MUTED))
-    Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
+    try:
+        Prompt.ask("[dim]Press Enter to continue[/dim]", default="")
+    except EOFError:
+        raise SystemExit(0)
 
 
 def _gradient_line(text: str, row: int, total_rows: int) -> Text:
@@ -531,7 +535,7 @@ def _standard_export(profiles, total, platform_name, item_type="profiles"):
                 if profiles:
                     writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
                     writer.writeheader()
-                    writer.writerows(profiles)
+                    writer.writerows({k: csv_safe(v) for k, v in p.items()} for p in profiles)
             _export_result(filename, len(profiles), item_type)
     else:
         _no_results()
@@ -717,7 +721,7 @@ def scrape_linktree_interactive():
                         all_keys.update(p.keys())
                     writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
                     writer.writeheader()
-                    writer.writerows(export_profiles)
+                    writer.writerows({k: csv_safe(v) for k, v in p.items()} for p in export_profiles)
             _export_result(filename, len(profiles))
     else:
         _no_results()
@@ -830,8 +834,7 @@ def scrape_from_file():
                     if not _verbose:
                         logging.getLogger().setLevel(logging.CRITICAL)
                     profile = scraper_func(username)
-                    if not _verbose:
-                        logging.getLogger().setLevel(prev_level)
+                    logging.getLogger().setLevel(prev_level)
 
                     if profile:
                         profiles.append(profile)
@@ -844,8 +847,7 @@ def scrape_from_file():
                         console.print(f"  [red]✗[/red] [dim]@{username}[/dim]")
 
                 except Exception as e:
-                    if not _verbose:
-                        logging.getLogger().setLevel(prev_level)
+                    logging.getLogger().setLevel(prev_level)
                     progress.stop()
                     console.print(f"  [red]✗[/red] [dim]@{username}[/dim]")
 
@@ -862,7 +864,7 @@ def scrape_from_file():
                 if profiles:
                     writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
                     writer.writeheader()
-                    writer.writerows(profiles)
+                    writer.writerows({k: csv_safe(v) for k, v in p.items()} for p in profiles)
 
             _success_summary(successful, len(usernames))
             _export_result(export_filename, successful)
@@ -1087,7 +1089,10 @@ def main():
                 default="1",
                 show_choices=False
             )
+        except EOFError:
+            break
 
+        try:
             if choice == '0':
                 console.clear()
                 console.print()

@@ -13,7 +13,6 @@ Features:
 import requests
 from typing import Dict, Optional
 import logging
-import re
 
 from app.scrapers.stealth import random_user_agent, get_requests_proxies
 from app.scrapers.utils import extract_email
@@ -39,8 +38,8 @@ def scrape_profile(username: str) -> Optional[Dict]:
     }
 
     query = """
-    query {
-        user(login: "%s") {
+    query($login: String!) {
+        user(login: $login) {
             id
             login
             displayName
@@ -52,15 +51,9 @@ def scrape_profile(username: str) -> Optional[Dict]:
                 isPartner
                 isAffiliate
             }
-            channel {
-                socialMedias {
-                    name
-                    url
-                }
-            }
         }
     }
-    """ % username
+    """
 
     try:
         proxies = get_requests_proxies()
@@ -68,7 +61,7 @@ def scrape_profile(username: str) -> Optional[Dict]:
             r = requests.post(
                 'https://gql.twitch.tv/gql',
                 headers=headers,
-                json={'query': query},
+                json={'query': query, 'variables': {'login': username}},
                 timeout=20,
                 proxies=proxies
             )
@@ -78,7 +71,7 @@ def scrape_profile(username: str) -> Optional[Dict]:
                 r = requests.post(
                     'https://gql.twitch.tv/gql',
                     headers=headers,
-                    json={'query': query},
+                    json={'query': query, 'variables': {'login': username}},
                     timeout=20
                 )
             else:
@@ -90,16 +83,22 @@ def scrape_profile(username: str) -> Optional[Dict]:
 
         data = r.json()
 
-        if 'errors' in data:
-            logger.error(f"Twitch GQL error for {username}: {data['errors']}")
-            return None
-
-        user_data = data.get('data', {}).get('user')
+        # Some fields (e.g. followers) can fail integrity checks while the
+        # user object itself is valid. Only give up when the user is missing.
+        user_data = (data.get('data') or {}).get('user')
         if not user_data:
+            if 'errors' in data:
+                logger.error(f"Twitch GQL error for {username}: {data['errors']}")
             logger.error(f"Twitch user {username} not found")
             return None
 
-        return _format_profile(user_data, username)
+        links = []
+        for social in (user_data.get('channel') or {}).get('socialMedias') or []:
+            url = social.get('url', '')
+            if url:
+                links.append(url)
+
+        return _format_profile(user_data, username, links)
 
     except requests.exceptions.Timeout:
         logger.error(f"Timeout fetching Twitch profile {username}")
@@ -112,7 +111,7 @@ def scrape_profile(username: str) -> Optional[Dict]:
         return None
 
 
-def _format_profile(data: dict, username: str) -> Dict:
+def _format_profile(data: dict, username: str, links: Optional[list] = None) -> Dict:
     """Format Twitch API response into standard profile format."""
 
     bio = data.get('description', '') or ''
@@ -124,13 +123,7 @@ def _format_profile(data: dict, username: str) -> Dict:
     is_partner = roles.get('isPartner', False)
     is_affiliate = roles.get('isAffiliate', False)
 
-    links = []
-    channel = data.get('channel', {}) or {}
-    social_medias = channel.get('socialMedias', []) or []
-    for social in social_medias:
-        url = social.get('url', '')
-        if url:
-            links.append(url)
+    links = links or []
 
     return {
         'username': data.get('login', username),

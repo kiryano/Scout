@@ -13,6 +13,18 @@ import re
 from typing import List
 
 
+def csv_safe(value) -> str:
+    """Neutralize spreadsheet formula injection in CSV cells (CWE-1236).
+
+    Excel/Sheets interpret leading =, +, -, @ as formulas; prefix a quote so
+    the cell renders as text. Only applied to user-controlled strings.
+    """
+    s = str(value)
+    if s[:1] in ('=', '+', '-', '@') and not s[:2] in ('-1', '+1'):
+        return "'" + s
+    return s
+
+
 def extract_email(text: str) -> str:
     """Extract first email address from text."""
     if not text:
