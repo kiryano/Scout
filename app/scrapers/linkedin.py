@@ -135,7 +135,7 @@ def scrape_linkedin_profile(username: str) -> Optional[Dict]:
         summary = multi.get('en_US', '') if isinstance(multi, dict) else ''
 
     websites = []
-    for w in profile_data.get('websites', []):
+    for w in profile_data.get('websites') or []:
         if isinstance(w, dict) and w.get('url'):
             websites.append(w['url'])
 
