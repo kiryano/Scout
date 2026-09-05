@@ -63,6 +63,11 @@ from rich.rule import Rule
 
 from app.scrapers.instagram import scrape_profile_no_login
 from app.scrapers.stealth import random_delay, proxy_status
+from app.scrapers.priority import rank_leads, display_priority_queue
+from app.scrapers.readiness import evaluate_readiness, display_readiness_table
+from app.scrapers.business import detect_business_type, estimate_team_size, display_business_table
+from app.scrapers.presence import extract_platform_presence, display_social_presence
+from app.scrapers.tracker import load_baseline, build_identity_key, detect_changes, classify_changes, display_change_tracker
 
 ACCENT = "#a70947"
 ACCENT_DIM = "#6b0530"
@@ -239,6 +244,37 @@ def enrich_profiles(profiles):
             )
 
         console.print(t)
+
+    ranked = rank_leads(enriched)
+    console.print(Rule("[bold white]Priority Queue[/bold white]", style=ACCENT_DIM, align="left"))
+    display_priority_queue(ranked, console)
+
+    for lead in ranked:
+        lead.update(evaluate_readiness(lead))
+
+    console.print(Rule("[bold white]Outreach Readiness[/bold white]", style=ACCENT_DIM, align="left"))
+    display_readiness_table(ranked, console)
+
+    for lead in ranked:
+        lead.update(detect_business_type(lead))
+        lead.update(estimate_team_size(lead))
+
+    console.print(Rule("[bold white]Business Profile[/bold white]", style=ACCENT_DIM, align="left"))
+    display_business_table(ranked, console)
+
+    baseline = load_baseline('.')
+    if baseline:
+        for lead in ranked:
+            key = build_identity_key(lead)
+            old_lead = baseline.get(key)
+            if old_lead:
+                raw = detect_changes(old_lead, lead)
+                lead['_changes'] = classify_changes(raw)
+            else:
+                lead['_changes'] = []
+
+        console.print(Rule("[bold white]Changes Since Last Scrape[/bold white]", style=ACCENT_DIM, align="left"))
+        display_change_tracker(ranked, baseline, console)
 
     return enriched
 
@@ -442,6 +478,7 @@ def show_menu():
     tools_left = [
         ("9", "Bulk Scrape", "from file"),
         ("10", "Exports", "view files"),
+        ("12", "Deduplicate", "cross-platform"),
     ]
     tools_right = [
         ("11", "Settings", "config"),
@@ -529,7 +566,10 @@ def _standard_export(profiles, total, platform_name, item_type="profiles"):
             filename = f"{platform_name}_export_{timestamp}.csv"
             with open(filename, 'w', newline='', encoding='utf-8') as f:
                 if profiles:
-                    writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
+                    all_keys = set()
+                    for p in profiles:
+                        all_keys.update(p.keys())
+                    writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
                     writer.writeheader()
                     writer.writerows(profiles)
             _export_result(filename, len(profiles), item_type)
@@ -855,17 +895,23 @@ def scrape_from_file():
         console.print()
 
         if profiles:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            export_filename = f"{platform_key}_export_{timestamp}.csv"
-
-            with open(export_filename, 'w', newline='', encoding='utf-8') as f:
-                if profiles:
-                    writer = csv.DictWriter(f, fieldnames=profiles[0].keys())
-                    writer.writeheader()
-                    writer.writerows(profiles)
-
             _success_summary(successful, len(usernames))
-            _export_result(export_filename, successful)
+            profiles = enrich_profiles(profiles)
+
+            if Confirm.ask("[+] Export to CSV?", default=True):
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                export_filename = f"{platform_key}_export_{timestamp}.csv"
+
+                with open(export_filename, 'w', newline='', encoding='utf-8') as f:
+                    if profiles:
+                        all_keys = set()
+                        for p in profiles:
+                            all_keys.update(p.keys())
+                        writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+                        writer.writeheader()
+                        writer.writerows(profiles)
+
+                _export_result(export_filename, successful)
         else:
             _no_results()
 
@@ -1057,6 +1103,92 @@ def view_exports():
     console.print()
 
 
+def deduplicate_interactive():
+    _platform_header("Deduplicate", "Cross-platform dedup")
+
+    from app.scrapers.dedup import (
+        load_all_exports, deduplicate, display_duplicate_report
+    )
+
+    console.print("[white]Scanning exports...[/white]")
+    console.print()
+
+    all_leads = load_all_exports('.')
+
+    if not all_leads:
+        console.print("  [yellow]No exports found[/yellow]")
+        console.print("  [dim]Run platform scrapes first to create exports[/dim]")
+        return
+
+    csv_count = len(set(lead.get('_source_file', '') for lead in all_leads))
+    console.print(f"  [dim]Found {csv_count} exports ({len(all_leads)} total profiles)[/dim]")
+
+    deduplicated, merged_groups, stats = deduplicate(all_leads)
+
+    display_duplicate_report(merged_groups, stats['unique_after'],
+                             stats['total_before'], console)
+
+    if not merged_groups:
+        console.print("  [green]No duplicates found across exports[/green]")
+        console.print()
+
+        if Confirm.ask("[+] Export all leads as-is?", default=True):
+            for lead in deduplicated:
+                lead.update(extract_platform_presence(lead))
+
+            console.print(Rule("[bold white]Social Presence[/bold white]", style=ACCENT_DIM, align="left"))
+            display_social_presence(deduplicated, console)
+
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"dedup_export_{timestamp}.csv"
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                all_keys = set()
+                for lead in deduplicated:
+                    export_lead = {k: v for k, v in lead.items()
+                                   if not k.startswith('_')}
+                    all_keys.update(export_lead.keys())
+                writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+                writer.writeheader()
+                for lead in deduplicated:
+                    export_lead = {k: v for k, v in lead.items()
+                                   if not k.startswith('_')}
+                    writer.writerow(export_lead)
+            console.print(f"  [green]Saved[/green] [white]{filename}[/white] [dim]({len(deduplicated)} leads)[/dim]")
+            console.print()
+        return
+
+    console.print(Rule("[bold white]Merge[/bold white]", style=ACCENT_DIM, align="left"))
+    console.print()
+
+    if Confirm.ask("[+] Merge duplicates and export?", default=True):
+        for lead in deduplicated:
+            lead.update(extract_platform_presence(lead))
+
+        console.print(Rule("[bold white]Social Presence[/bold white]", style=ACCENT_DIM, align="left"))
+        display_social_presence(deduplicated, console)
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"dedup_export_{timestamp}.csv"
+
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            all_keys = set()
+            for lead in deduplicated:
+                export_lead = {k: v for k, v in lead.items()
+                               if not k.startswith('_')}
+                all_keys.update(export_lead.keys())
+            writer = csv.DictWriter(f, fieldnames=sorted(all_keys))
+            writer.writeheader()
+            for lead in deduplicated:
+                export_lead = {k: v for k, v in lead.items()
+                               if not k.startswith('_')}
+                writer.writerow(export_lead)
+
+        console.print()
+        console.print(f"  [green]Saved[/green] [white]{filename}[/white] [dim]({len(deduplicated)} unique leads)[/dim]")
+        console.print(f"  [dim]Merged {stats['overlapping']} duplicates into {stats['groups']} groups[/dim]")
+        console.print()
+
+
 def main():
     _update_thread = _start_update_check()
     console.clear()
@@ -1083,7 +1215,7 @@ def main():
         try:
             choice = Prompt.ask(
                 f"[{ACCENT}]>[/{ACCENT}]",
-                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
+                choices=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
                 default="1",
                 show_choices=False
             )
@@ -1123,6 +1255,8 @@ def main():
                 view_exports()
             elif choice == '11':
                 settings_menu()
+            elif choice == '12':
+                deduplicate_interactive()
 
             _pause()
             console.clear()
