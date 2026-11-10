@@ -22,13 +22,15 @@ logging.basicConfig(
     format='%(name)s: %(message)s',
 )
 
+_HELP_ARGS = ('--help', '-h', 'help')
+_VERSION_ARGS = ('--version', '-v', 'version')
 _args = [a for a in sys.argv[1:] if a not in ('--verbose', '-V')]
 if _args:
-    arg = _args[0].lower()
-    if arg in ('--version', '-v', 'version'):
+    lowered = [a.lower() for a in _args]
+    if any(a in _VERSION_ARGS for a in lowered):
         print(f"Scout v{__version__}")
         sys.exit(0)
-    elif arg in ('--help', '-h', 'help'):
+    if any(a in _HELP_ARGS for a in lowered):
         print(f"Scout v{__version__} - Social media lead generation tool")
         print()
         print("Usage: python scout.py [options]")
@@ -40,6 +42,9 @@ if _args:
         print()
         print("Run without arguments to start the interactive menu.")
         sys.exit(0)
+    print(f"Scout: unknown argument '{_args[0]}'", file=sys.stderr)
+    print("Run 'python scout.py --help' for usage.", file=sys.stderr)
+    sys.exit(2)
 
 env_file = Path(__file__).parent / '.env'
 if env_file.exists():
